@@ -3,6 +3,7 @@ This html game illustrates the original design of the Spider Stellar Engine, as 
 Vidal, C. 2024. “The Spider Stellar Engine: A Fully Steerable Extraterrestrial Design?” Journal of the British Interplanetary Society 77 (5): 156–66. doi:10.59332/jbis-077-05-0156. https://arxiv.org/abs/2411.05038.
 
 Piloting the spider stellar engine is an educational way to understand how the dynamics works.
+Demo here: http://www.clemvidal.com/s/Spider-Stellar-Engine-The-Game.html 
 
 It was programmed by Gemini 2.5 Pro. 
 MIT Licence, feel free to fork & make your own version.
