@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spider Stellar Engine - The Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #000010; /* Very dark blue */
+            color: #f3f4f6; /* text-gray-100 */
+            overflow: hidden; /* Prevent scrollbars */
+            position: relative; /* For starfield */
+        }
+        canvas {
+            background-color: transparent; /* Make canvas transparent */
+            border: 1px solid #4b5563; /* border-gray-600 */
+            border-radius: 0.5rem; /* rounded-lg */
+            display: block;
+            max-width: 100%;
+            z-index: 1; /* Canvas above starfield */
+        }
+        /* Starfield Background */
+        .star {
+            position: absolute;
+            background-color: white;
+            border-radius: 50%;
+            z-index: 0; /* Behind canvas */
+            animation: twinkle 2s infinite alternate;
+        }
+        @keyframes twinkle {
+            0% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        /* Difficulty Buttons Styling */
+        .difficulty-controls {
+            margin-bottom: 0.5rem; /* mb-2 */
+            z-index: 2;
+        }
+         .difficulty-controls button {
+            background-color: #374151; /* bg-gray-700 */
+            color: #f3f4f6; /* text-gray-100 */
+            border: 1px solid #4b5563; /* border-gray-600 */
+            padding: 0.3rem 0.8rem; /* Smaller padding */
+            margin: 0 0.25rem; /* mx-1 */
+            border-radius: 0.375rem; /* rounded-md */
+            transition: background-color 0.2s ease;
+            font-size: 0.8rem; /* Smaller font */
+        }
+        .difficulty-controls button:hover {
+            background-color: #4b5563; /* bg-gray-600 */
+        }
+        .difficulty-controls button.active { /* Style for selected difficulty */
+            background-color: #10b981; /* bg-emerald-500 */
+            color: #fff;
+            border-color: #059669; /* border-emerald-700 */
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .status-container {
+            margin-top: 0.5rem; /* mt-2 */
+            font-size: 0.875rem; /* text-sm */
+            color: #9ca3af; /* text-gray-400 */
+            min-height: 6rem;
+            text-align: center;
+            z-index: 2; /* Above canvas */
+        }
+        .instructions {
+            font-size: 0.75rem; /* text-xs */
+            margin-bottom: 0.25rem;
+        }
+        .game-message { /* Combined class for win/lose messages */
+            font-weight: bold;
+            font-size: 1.1rem;
+            min-height: 1.5rem; /* Reserve space */
+            transition: opacity 0.1s ease-in-out; /* Smooth blink */
+        }
+        .win-message {
+            color: #34d399; /* text-emerald-400 */
+        }
+        .lose-message {
+            color: #f87171; /* text-red-400 */
+        }
+        /* Style for the blinking countdown message */
+        .countdown-message {
+             color: #fbbf24; /* amber-400 */
+        }
+
+        /* Score Display Styling */
+        #scoreDisplay {
+            color: #e5e7eb; /* gray-200 */
+            font-weight: 500;
+            font-size: 0.8rem; /* Slightly smaller for breakdown */
+            line-height: 1.2; /* Adjust line spacing */
+            text-align: left; /* Align breakdown left */
+            display: inline-block; /* Fit content */
+        }
+        #scoreDisplay strong {
+            font-size: 1rem; /* Make final score slightly larger */
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+
+    <h1 class="text-xl font-bold mb-2 z-10">Spider Stellar Engine - The Game</h1>
+
+    <div class="difficulty-controls mb-2 z-10">
+        <span class="text-sm mr-2">Difficulty:</span>
+        <button id="difficultyEasy">Easy</button>
+        <button id="difficultyMedium">Medium</button>
+        <button id="difficultyHard">Hard</button>
+    </div>
+
+    <div class="status-container">
+        <div class="instructions">Hold SPACEBAR to apply thrust opposite the companion's current position. Reach the yellow star!</div>
+        <div class="instructions">Illustration of the Spider Stellar Engine <a href="https://arxiv.org/abs/2411.05038" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">arXiv:2411.05038</a> by Clément Vidal (& Gemini 2.5 Pro),  </div>
+        <div id="status">Thrust: INACTIVE</div>
+        <div id="propellantStatus" class="text-xs mt-1">Propellant: 100%</div>
+        <div id="timeDisplay" class="text-xs mt-1">Time: 0.0s</div>
+        <div id="propellantUsedDisplay" class="text-xs mt-1">Propellant Used: 0%</div>
+        <div id="thrustCountDisplay" class="text-xs mt-1">Thrusts: 0</div>
+        <div id="gameMessage" class="game-message"></div>
+        <div id="scoreDisplay" class="text-sm mt-1"></div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const gameMessageDiv = document.getElementById('gameMessage');
+        const propellantStatusDiv = document.getElementById('propellantStatus');
+        const scoreDisplayDiv = document.getElementById('scoreDisplay');
+        const timeDisplayDiv = document.getElementById('timeDisplay');
+        const propellantUsedDisplayDiv = document.getElementById('propellantUsedDisplay');
+        const thrustCountDisplayDiv = document.getElementById('thrustCountDisplay');
+        const difficultyEasyBtn = document.getElementById('difficultyEasy');
+        const difficultyMediumBtn = document.getElementById('difficultyMedium');
+        const difficultyHardBtn = document.getElementById('difficultyHard');
+
+        // --- Game Parameters & Constants ---
+        const G = 15;
+        const M_SOL = 1;
+        const pulsarMass = 1.8 * M_SOL;
+        const companionMass = 0.1 * M_SOL;
+        const targetMass = 1.0 * M_SOL;
+        const totalBinaryMass = pulsarMass + companionMass;
+
+        const pulsarRadius = 4;
+        const baseCompanionInitialRadius = 8;
+        const minCompanionRadius = 2;
+        const evaporationRate = 0.01;
+
+        const orbitRadius = 60;
+        const orbitSpeed = 0.04;
+        const thrustMagnitude = 0.015;
+        const maxSystemSpeed = 2.5;
+        const drag = 0.999;
+
+        const targetRadius = 25;
+        const winDistance = targetRadius + baseCompanionInitialRadius;
+
+        const COUNTDOWN_DURATION = 30; // Seconds for empty propellant countdown
+
+        let gameState = 'playing'; // 'playing', 'countdown', 'win', 'lose'
+        let currentDifficulty = 'easy';
+
+        // --- State Variables ---
+        let systemX, systemY, systemVX, systemVY;
+        let companionAngle;
+        let thrustInputActive;
+        let companionInitialRadius;
+        let companionCurrentRadius;
+        let animationFrameId;
+        let startTime;
+        let winTime;
+        let thrustPressCount;
+        let isSpacebarDown;
+        let propellantEmptyTime = null;
+
+        let targetX = canvas.width - 100;
+        let targetY = 100;
+
+        // --- Thrust Particles ---
+        let particles = [];
+        const maxParticles = 300;
+        const particleLifetime = 50;
+        const PARTICLES_PER_THRUST_FRAME = 15;
+
+
+        // --- Starfield ---
+        const numStars = 150;
+        const stars = [];
+
+        function createStarfield() { /* ... same as before ... */
+            const body = document.body;
+            const existingStars = body.querySelectorAll('.star');
+            existingStars.forEach(star => star.remove());
+            stars.length = 0;
+
+            for (let i = 0; i < numStars; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                const size = Math.random() * 2 + 0.5;
+                star.style.width = `${size}px`;
+                star.style.height = `${size}px`;
+                star.style.left = `${Math.random() * 100}%`;
+                star.style.top = `${Math.random() * 100}%`;
+                star.style.animationDelay = `${Math.random() * 2}s`;
+                body.insertBefore(star, body.firstChild);
+                stars.push(star);
+            }
+         }
+
+
+        // --- Control Logic ---
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameState === 'playing') {
+                if (!isSpacebarDown) {
+                    thrustPressCount++;
+                    isSpacebarDown = true;
+                }
+                thrustInputActive = true;
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                thrustInputActive = false;
+                isSpacebarDown = false;
+            }
+        });
+
+        difficultyEasyBtn.addEventListener('click', () => setDifficulty('easy'));
+        difficultyMediumBtn.addEventListener('click', () => setDifficulty('medium'));
+        difficultyHardBtn.addEventListener('click', () => setDifficulty('hard'));
+
+        function setDifficulty(difficulty) {
+             currentDifficulty = difficulty;
+             updateDifficultyButtonStyles();
+             initializeGame();
+        }
+
+        function updateDifficultyButtonStyles() {
+            difficultyEasyBtn.classList.toggle('active', currentDifficulty === 'easy');
+            difficultyMediumBtn.classList.toggle('active', currentDifficulty === 'medium');
+            difficultyHardBtn.classList.toggle('active', currentDifficulty === 'hard');
+        }
+
+
+        // --- Game Initialization ---
+        function initializeGame() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+
+            systemX = 100;
+            systemY = canvas.height - 100;
+            systemVX = 0;
+            systemVY = 0;
+            companionAngle = Math.PI / 2;
+            thrustInputActive = false;
+            isSpacebarDown = false;
+            particles = [];
+            gameState = 'playing';
+            gameMessageDiv.textContent = "";
+            gameMessageDiv.className = 'game-message';
+            gameMessageDiv.style.visibility = 'visible';
+            scoreDisplayDiv.innerHTML = "";
+
+            startTime = performance.now();
+            winTime = 0;
+            thrustPressCount = 0;
+            propellantEmptyTime = null;
+
+
+            const propellantRangeEasy = baseCompanionInitialRadius - minCompanionRadius;
+            if (currentDifficulty === 'medium') {
+                companionInitialRadius = minCompanionRadius + propellantRangeEasy * 0.5;
+            } else if (currentDifficulty === 'hard') {
+                 companionInitialRadius = minCompanionRadius + propellantRangeEasy * 0.15;
+            } else { // Easy
+                companionInitialRadius = baseCompanionInitialRadius;
+            }
+            companionCurrentRadius = companionInitialRadius;
+
+            statusDiv.textContent = `Thrust: INACTIVE`;
+            propellantStatusDiv.textContent = `Propellant: 100%`;
+            timeDisplayDiv.textContent = `Time: 0.0s`;
+            propellantUsedDisplayDiv.textContent = `Propellant Used: 0%`;
+            thrustCountDisplayDiv.textContent = `Thrusts: 0`;
+
+            lastTime = 0;
+            gameLoop(0);
+        }
+
+
+        // --- Physics & Game Loop ---
+
+        function applyGravity() { /* ... same as before ... */
+            const dx = targetX - systemX;
+            const dy = targetY - systemY;
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.sqrt(distSq);
+
+            if (dist > targetRadius) {
+                const forceMag = G * targetMass * totalBinaryMass / distSq;
+                const forceX = (dx / dist) * forceMag;
+                const forceY = (dy / dist) * forceMag;
+                const accX = forceX / totalBinaryMass;
+                const accY = forceY / totalBinaryMass;
+                systemVX += accX;
+                systemVY += accY;
+            }
+         }
+
+        function createParticle(x, y, ejectionAngleBase) { /* ... same as before ... */
+            if (particles.length < maxParticles) {
+                const speed = 3.0 + Math.random() * 2.5;
+                const ejectAngle = ejectionAngleBase + (Math.random() - 0.5) * 0.6;
+                particles.push({
+                    x: x, y: y,
+                    vx: Math.cos(ejectAngle) * speed,
+                    vy: Math.sin(ejectAngle) * speed,
+                    life: particleLifetime
+                });
+            }
+         }
+
+        function handleParticles() { /* ... same as before ... */
+             for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.fillStyle = `rgba(255, 165, 0, ${p.life / particleLifetime * 0.8})`;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+         }
+
+        function calculateScore() { /* ... same as before ... */
+            const timeTaken = (winTime - startTime) / 1000;
+            const propellantUsed = companionInitialRadius - companionCurrentRadius;
+            const propellantRange = companionInitialRadius - minCompanionRadius;
+            const percentUsed = propellantRange > 0 ? (propellantUsed / propellantRange) * 100 : 0;
+
+            const baseScore = 1000000;
+            const timePenalty = timeTaken * 100;
+            const propellantPenalty = percentUsed * 100;
+            const thrustCountPenalty = thrustPressCount * 500;
+
+            const finalScore = Math.max(0, Math.round(baseScore - timePenalty - propellantPenalty - thrustCountPenalty));
+
+            return {
+                finalScore: finalScore,
+                baseScore: baseScore,
+                timePenalty: timePenalty,
+                propellantPenalty: propellantPenalty,
+                thrustCountPenalty: thrustCountPenalty,
+                timeTaken: timeTaken,
+                percentUsed: percentUsed
+            };
+         }
+
+
+        function checkWinCondition() {
+            // Only check if playing or in countdown
+            if (gameState !== 'playing' && gameState !== 'countdown') return;
+
+            const dx = targetX - systemX;
+            const dy = targetY - systemY;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < winDistance) {
+                // *** REMOVED check: if (gameState !== 'countdown') ***
+                // Now allows winning even during countdown
+                gameState = 'win';
+                winTime = performance.now();
+                gameMessageDiv.textContent = "TARGET REACHED! YOU MAY NOW EAT A NEW STAR";
+                gameMessageDiv.className = 'game-message win-message';
+                gameMessageDiv.style.visibility = 'visible';
+                const scoreData = calculateScore();
+                scoreDisplayDiv.innerHTML = `
+                    Score Breakdown:<br>
+                    Base Score: ${scoreData.baseScore.toLocaleString()}<br>
+                    Time Penalty (-${scoreData.timePenalty.toFixed(0)}): ${scoreData.timeTaken.toFixed(1)}s<br>
+                    Propellant Penalty (-${scoreData.propellantPenalty.toFixed(0)}): ${scoreData.percentUsed.toFixed(0)}% used<br>
+                    Thrust Penalty (-${scoreData.thrustCountPenalty.toFixed(0)}): ${thrustPressCount} presses<br>
+                    <strong class="text-lg">Final Score: ${scoreData.finalScore.toLocaleString()}</strong>
+                `;
+            }
+        }
+
+        function checkLoseCondition() {
+             // Only check if playing
+            if (gameState !== 'playing') return false;
+
+            let lost = false;
+            // Check propellant - START COUNTDOWN if empty
+            // Ensure propellantEmptyTime is null before starting countdown
+            if (companionCurrentRadius <= minCompanionRadius && propellantEmptyTime === null) {
+                propellantEmptyTime = performance.now(); // Start timer
+                gameState = 'countdown'; // Enter countdown state
+                gameMessageDiv.className = 'game-message countdown-message'; // Set countdown style
+                thrustInputActive = false; // Ensure thrust stops
+                isSpacebarDown = false;
+                // Don't set lost = true here, just start countdown
+            }
+
+            // Check boundaries - IMMEDIATE LOSS
+            if (systemX < 0 || systemX > canvas.width || systemY < 0 || systemY > canvas.height) {
+                gameState = 'lose';
+                gameMessageDiv.textContent = "LOST IN THE GALAXY. TRY AGAIN.";
+                gameMessageDiv.className = 'game-message lose-message';
+                gameMessageDiv.style.visibility = 'visible';
+                lost = true;
+            }
+
+            if (lost) {
+                 thrustInputActive = false;
+                 isSpacebarDown = false;
+                 scoreDisplayDiv.innerHTML = "Score: 0";
+            }
+            return lost;
+        }
+
+
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            animationFrameId = requestAnimationFrame(gameLoop);
+
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000 || 0;
+            lastTime = currentTime;
+
+            // --- Handle Game End States ---
+            if (gameState === 'win' || gameState === 'lose') {
+                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+                 // Draw Target Star, Binary System, Particles... (same drawing logic as before)
+                 ctx.fillStyle = '#facc15';
+                 ctx.beginPath();
+                 ctx.arc(targetX, targetY, targetRadius, 0, Math.PI * 2);
+                 const grad = ctx.createRadialGradient(targetX, targetY, targetRadius * 0.5, targetX, targetY, targetRadius * 1.2);
+                 grad.addColorStop(0, 'rgba(250, 204, 21, 0.8)');
+                 grad.addColorStop(1, 'rgba(250, 204, 21, 0)');
+                 ctx.fillStyle = grad;
+                 ctx.fillRect(targetX - targetRadius * 1.2, targetY - targetRadius * 1.2, targetRadius * 2.4, targetRadius * 2.4);
+                 ctx.fillStyle = '#facc15';
+                 ctx.beginPath();
+                 ctx.arc(targetX, targetY, targetRadius * 0.8, 0, Math.PI * 2);
+                 ctx.fill();
+                 ctx.strokeStyle = 'rgba(100, 100, 100, 0.2)';
+                 ctx.lineWidth = 1;
+                 ctx.beginPath();
+                 ctx.arc(systemX, systemY, orbitRadius, 0, Math.PI * 2);
+                 ctx.stroke();
+                 ctx.fillStyle = '#60a5fa';
+                 ctx.beginPath();
+                 ctx.arc(systemX, systemY, pulsarRadius, 0, Math.PI * 2);
+                 ctx.fill();
+                 const companionDrawX = systemX + Math.cos(companionAngle) * orbitRadius;
+                 const companionDrawY = systemY + Math.sin(companionAngle) * orbitRadius;
+                 ctx.fillStyle = '#fca5a5';
+                 ctx.beginPath();
+                 ctx.arc(companionDrawX, companionDrawY, companionCurrentRadius, 0, Math.PI * 2);
+                 ctx.fill();
+                 handleParticles();
+                 return; // Skip updates
+            }
+
+            // --- Handle Countdown State ---
+            if (gameState === 'countdown') {
+                const elapsedEmptyTime = (currentTime - propellantEmptyTime) / 1000;
+                const remainingTime = Math.max(0, COUNTDOWN_DURATION - elapsedEmptyTime);
+
+                // Blinking logic
+                const isVisible = Math.floor(currentTime / 500) % 2 === 0;
+                gameMessageDiv.style.visibility = isVisible ? 'visible' : 'hidden';
+                gameMessageDiv.textContent = `PROPELLANT EMPTY! CORE COLLAPSE IMMINENT: ${remainingTime.toFixed(1)}s`;
+
+                if (remainingTime <= 0) {
+                    // Countdown finished - Lose
+                    gameState = 'lose';
+                    gameMessageDiv.textContent = "OUT OF PROPELLANT. TRY AGAIN";
+                    gameMessageDiv.className = 'game-message lose-message';
+                    gameMessageDiv.style.visibility = 'visible';
+                    scoreDisplayDiv.innerHTML = "Score: 0";
+                    // Let the game loop run one more time to draw the lose state
+                }
+                 // Apply physics during countdown
+                 applyGravity();
+                 companionAngle += orbitSpeed;
+                 if (companionAngle >= Math.PI * 2) companionAngle -= Math.PI * 2;
+                 systemVX *= drag;
+                 systemVY *= drag;
+                 systemX += systemVX;
+                 systemY += systemVY;
+                 // Check for boundary loss or win during countdown
+                 checkLoseCondition(); // Can trigger immediate loss if boundary hit
+                 if (gameState === 'countdown') { // Only check win if not lost by boundary
+                    checkWinCondition();
+                 }
+
+            } else if (gameState === 'playing') {
+                // --- Normal Updates (if gameState is 'playing') ---
+                applyGravity();
+
+                companionAngle += orbitSpeed;
+                if (companionAngle >= Math.PI * 2) companionAngle -= Math.PI * 2;
+
+                const companionRelX = Math.cos(companionAngle) * orbitRadius;
+                const companionRelY = Math.sin(companionAngle) * orbitRadius;
+                const companionDrawX = systemX + companionRelX;
+                const companionDrawY = systemY + companionRelY;
+
+                let isThrustingThisFrame = false;
+                if (thrustInputActive && companionCurrentRadius > minCompanionRadius) {
+                    isThrustingThisFrame = true;
+
+                    companionCurrentRadius -= evaporationRate;
+                    if (companionCurrentRadius < minCompanionRadius) {
+                        companionCurrentRadius = minCompanionRadius;
+                        // Check if countdown needs to start NOW (will set gameState)
+                        checkLoseCondition();
+                    }
+
+                    // Only apply thrust/particles if still playing after potential state change
+                    if (gameState === 'playing') {
+                        const distToComp = Math.sqrt(companionRelX*companionRelX + companionRelY*companionRelY);
+                        const dirToCompX = distToComp > 0 ? companionRelX / distToComp : 0;
+                        const dirToCompY = distToComp > 0 ? companionRelY / distToComp : 0;
+                        const thrustDirX = -dirToCompX;
+                        const thrustDirY = -dirToCompY;
+
+                        systemVX += thrustDirX * thrustMagnitude;
+                        systemVY += thrustDirY * thrustMagnitude;
+
+                        const ejectionAngleBase = Math.atan2(dirToCompY, dirToCompX);
+                        for (let i = 0; i < PARTICLES_PER_THRUST_FRAME; i++) {
+                            createParticle(companionDrawX, companionDrawY, ejectionAngleBase);
+                        }
+                    }
+                } // End thrust check
+
+                // Apply drag and limit speed
+                systemVX *= drag;
+                systemVY *= drag;
+                const currentSpeed = Math.sqrt(systemVX * systemVX + systemVY * systemVY);
+                if (currentSpeed > maxSystemSpeed) {
+                    const factor = maxSystemSpeed / currentSpeed;
+                    systemVX *= factor;
+                    systemVY *= factor;
+                }
+                systemX += systemVX;
+                systemY += systemVY;
+
+                // Check for win/lose conditions AFTER position update
+                checkWinCondition();
+                if (gameState === 'playing') {
+                     checkLoseCondition();
+                }
+            } // End 'playing' state update block
+
+
+            // --- Drawing (Common for playing and countdown) ---
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Target Star, Orbit, Pulsar, Companion... (same as before)
+             ctx.fillStyle = '#facc15';
+             ctx.beginPath();
+             ctx.arc(targetX, targetY, targetRadius, 0, Math.PI * 2);
+             const grad = ctx.createRadialGradient(targetX, targetY, targetRadius * 0.5, targetX, targetY, targetRadius * 1.2);
+             grad.addColorStop(0, 'rgba(250, 204, 21, 0.8)');
+             grad.addColorStop(1, 'rgba(250, 204, 21, 0)');
+             ctx.fillStyle = grad;
+             ctx.fillRect(targetX - targetRadius * 1.2, targetY - targetRadius * 1.2, targetRadius * 2.4, targetRadius * 2.4);
+             ctx.fillStyle = '#facc15';
+             ctx.beginPath();
+             ctx.arc(targetX, targetY, targetRadius * 0.8, 0, Math.PI * 2);
+             ctx.fill();
+             ctx.strokeStyle = 'rgba(100, 100, 100, 0.2)';
+             ctx.lineWidth = 1;
+             ctx.beginPath();
+             ctx.arc(systemX, systemY, orbitRadius, 0, Math.PI * 2);
+             ctx.stroke();
+             ctx.fillStyle = '#60a5fa';
+             ctx.beginPath();
+             ctx.arc(systemX, systemY, pulsarRadius, 0, Math.PI * 2);
+             ctx.fill();
+             const companionDrawX = systemX + Math.cos(companionAngle) * orbitRadius;
+             const companionDrawY = systemY + Math.sin(companionAngle) * orbitRadius;
+             let isThrustingThisFrame = (gameState === 'playing' && thrustInputActive && companionCurrentRadius > minCompanionRadius);
+             ctx.fillStyle = isThrustingThisFrame ? '#fcd34d' : '#fca5a5';
+             ctx.beginPath();
+             ctx.arc(companionDrawX, companionDrawY, companionCurrentRadius, 0, Math.PI * 2);
+             ctx.fill();
+
+
+            // Update and Draw Particles
+            handleParticles();
+
+            // --- Update UI (Common for playing and countdown) ---
+            let thrustStatus = "INACTIVE";
+            if (gameState === 'playing' || gameState === 'countdown') {
+                 if (thrustInputActive) {
+                    if (companionCurrentRadius > minCompanionRadius) {
+                        thrustStatus = "ACTIVE";
+                    } else {
+                        thrustStatus = "EMPTY";
+                    }
+                } else if (companionCurrentRadius <= minCompanionRadius) {
+                     thrustStatus = "EMPTY";
+                }
+            } else if (gameState === 'lose') {
+                 thrustStatus = "EMPTY";
+            }
+
+            statusDiv.textContent = `Thrust: ${thrustStatus}`;
+            const propellantRange = companionInitialRadius - minCompanionRadius;
+            const currentPropellant = companionCurrentRadius - minCompanionRadius;
+            const propellantPercent = propellantRange > 0 ? (currentPropellant / propellantRange) * 100 : 0;
+            propellantStatusDiv.textContent = `Propellant: ${Math.max(0, propellantPercent).toFixed(0)}%`;
+            const timeElapsed = (currentTime - startTime) / 1000;
+            // Only update time display if not won/lost yet
+            if (gameState === 'playing' || gameState === 'countdown') {
+                timeDisplayDiv.textContent = `Time: ${timeElapsed.toFixed(1)}s`;
+            }
+            const propellantUsed = companionInitialRadius - companionCurrentRadius;
+            const percentUsed = propellantRange > 0 ? (propellantUsed / propellantRange) * 100 : 0;
+            propellantUsedDisplayDiv.textContent = `Propellant Used: ${Math.max(0, percentUsed).toFixed(0)}%`;
+            thrustCountDisplayDiv.textContent = `Thrusts: ${thrustPressCount}`;
+
+            // Score display is handled only on win/loss condition checks
+
+            // --- Next Frame ---
+            // requestAnimationFrame(gameLoop); // Already called at start
+        }
+
+        // --- Initial Setup ---
+        createStarfield();
+        setDifficulty('easy'); // Start on Easy
+
+    </script>
+
+</body>
+</html>
